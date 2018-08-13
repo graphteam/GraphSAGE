@@ -124,6 +124,7 @@ class SparseGraph:
         mask = np.zeros(self.adj_matrix.shape[0])
         mask[list_of_nodes] = 1
         sub_graph = spdiags(mask, 0, len(mask), len(mask)) * self.adj_matrix
+        sub_graph = (spdiags(mask, 0, len(mask), len(mask)) * sub_graph.T).T
         return sub_graph
 
     @staticmethod
