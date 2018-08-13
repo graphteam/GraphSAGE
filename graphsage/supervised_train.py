@@ -12,7 +12,8 @@ from graphsage.supervised_models import SupervisedGraphsage
 from graphsage.models import SAGEInfo
 from graphsage.minibatch import NodeMinibatchIterator
 from graphsage.neigh_samplers import UniformNeighborSampler
-from graphsage.utils import load_data
+# from graphsage.utils import load_data
+from graphsage.utils_fast import load_data
 
 os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
 
@@ -119,31 +120,36 @@ def construct_placeholders(num_classes):
     }
     return placeholders
 
-def train(train_data, test_data=None):
+def train(train_data, test_data):
 
-    G = train_data[0]
-    features = train_data[1]
-    id_map = train_data[2]
-    class_map  = train_data[4]
-    if isinstance(list(class_map.values())[0], list):
-        num_classes = len(list(class_map.values())[0])
+    G = train_data
+    G_test = test_data
+    # features = train_data[1]
+    # id_map = train_data[2]
+    # class_map  = train_data[4]
+    if isinstance(list(G.class_map.values())[0], list):
+        num_classes = len(list(G.class_map.values())[0])
     else:
-        num_classes = len(set(class_map.values()))
+        num_classes = len(set(G.class_map.values()))
 
-    if not features is None:
+    if not G.features is None:
         # pad with dummy zero vector
-        features = np.vstack([features, np.zeros((features.shape[1],))])
+        features = np.vstack([G.features, np.zeros((G.features.shape[1],))])
 
-    context_pairs = train_data[3] if FLAGS.random_context else None
+    # context_pairs = train_data[3] if FLAGS.random_context else None
     placeholders = construct_placeholders(num_classes)
-    minibatch = NodeMinibatchIterator(G, 
-            id_map,
+    print('blabla')
+    minibatch = NodeMinibatchIterator(G,
+            G_test,
+            # G.id_map,
             placeholders, 
-            class_map,
+            # G.class_map,
             num_classes,
             batch_size=FLAGS.batch_size,
             max_degree=FLAGS.max_degree, 
-            context_pairs = context_pairs)
+            # context_pairs = context_pairs
+                                      )
+    print('minibatch created')
     adj_info_ph = tf.placeholder(tf.int32, shape=minibatch.adj.shape)
     adj_info = tf.Variable(adj_info_ph, trainable=False, name="adj_info")
 
@@ -331,9 +337,9 @@ def train(train_data, test_data=None):
 
 def main(argv=None):
     print("Loading training data..")
-    train_data = load_data(FLAGS.train_prefix)
+    train_data, test_data = load_data(FLAGS.train_prefix)
     print("Done loading training data..")
-    train(train_data)
+    train(train_data, test_data)
 
 if __name__ == '__main__':
     tf.app.run()

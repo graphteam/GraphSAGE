@@ -9,6 +9,8 @@ import os
 from numba import jitclass, int32, float32
 import scipy
 from scipy.sparse import csr_matrix, load_npz, save_npz, spdiags
+import copy
+from collections import Counter
 
 @jitclass([
     ('K', int32),
@@ -68,7 +70,7 @@ class SparseGraph:
     def __init__(self, adj_matrix=None,
                  node_features=None,
                  id_map=None,
-                 node_classes=None,
+                 class_map=None,
                  graph_weights_scaling='log2',
                  graph_mode='directed',
                  features_mode='npy',
@@ -81,25 +83,30 @@ class SparseGraph:
             self.adj_matrix = adj_matrix
         else:
             raise "adj_matrix should be path to adj_matrix string or scipy.sparse.csr_matrix"
+        self.adj_matrix_normed = self.normalize(self.adj_matrix)
+
+        self.deg = np.zeros(self.adj_matrix.shape[0])
+        deg = (Counter(self.adj_matrix.nonzero()[0]))
+        for i in deg:
+            self.deg[i] = deg[i]
+        #self.deg =
 
         if isinstance(node_features, pd.DataFrame):
-            self.node_features = node_features.values
+            self.features = node_features.values
         elif isinstance(node_features, np.ndarray):
-            self.node_features = node_features
+            self.features = node_features
         elif isinstance(node_features, str):
             self.load_features(node_features, mode=features_mode, sep=features_sep)
         else:
             raise "nodefeatures should be np.array or pd.DataFrame or path2features"
 
-        assert self.adj_matrix.shape[0] == self.node_features.shape[
+        assert self.adj_matrix.shape[0] == self.features.shape[
             0], "adj_matrix.shape[0] should be equal to node_features.shape[0]"
 
-        self.random_cached = []
-        for i in range(self.adj_matrix.shape[0]):
-            self.random_cached.append(FastRandomChoiceCached(self.adj_matrix[i].indices, self.adj_matrix[i].data))
+        self.cache4random()
 
         self.id_map = id_map
-        self.node_classes = node_classes
+        self.class_map = class_map
 
     def sample_neighbours(self, node_id, n_sample):
         return self.random_cached[node_id].draw_n(n_sample)
@@ -116,49 +123,111 @@ class SparseGraph:
     def load_features(self, path2fts, mode='csv', sep=','):
         """грузим уже обработанные фичи"""
         if mode == 'csv':
-            self.node_features = pd.read_csv(path2fts, sep=sep)
+            self.features = pd.read_csv(path2fts, sep=sep)
         elif mode == 'npy':
-            self.node_features = np.load(path2fts)
+            self.features = np.load(path2fts)
 
     def get_sub_graph(self, list_of_nodes):
         mask = np.zeros(self.adj_matrix.shape[0])
         mask[list_of_nodes] = 1
         sub_graph = spdiags(mask, 0, len(mask), len(mask)) * self.adj_matrix
-        sub_graph = (spdiags(mask, 0, len(mask), len(mask)) * sub_graph.T).T
+        sub_graph = ((spdiags(mask, 0, len(mask), len(mask)) * sub_graph.T).T).tocsr()
         return sub_graph
 
+    # @staticmethod
+    # def preprocess_edgelist(path2edjlist, sep=',', graph_weights_scaling='log2', graph_mode='directed'):
+    #     X = pd.read_csv(path2edjlist, sep=sep)
+    #
+    #     out_vertex_col = X.columns[0]
+    #     in_vertex_col = X.columns[1]
+    #     weight_col = X.columns[2]
+    #
+    #     out_vertex = set(X[out_vertex_col])
+    #     in_vertex = set(X[in_vertex_col])
+    #     all_vertex = out_vertex.union(in_vertex)
+    #
+    #     vertex_encoding = {i: j for i, j in zip(all_vertex, range(len(all_vertex)))}
+    #     id_map = {j: i for i, j in zip(all_vertex, range(len(all_vertex)))}
+    #
+    #     X[out_vertex_col] = X[out_vertex_col].map(vertex_encoding)
+    #     X[in_vertex_col] = X[in_vertex_col].map(vertex_encoding)
+    #
+    #     graph = csr_matrix((X[weight_col], (X[in_vertex_col], X[out_vertex_col])),
+    #                        (len(vertex_encoding), len(vertex_encoding)), dtype=np.float32)
+    #
+    #     if graph_mode == 'undirected':
+    #         graph = graph + graph.T
+    #
+    #     norm_consts = graph.sum(axis=1)
+    #     norm_consts = np.array(norm_consts).squeeze()
+    #     norm = 1 / norm_consts
+    #     norm[norm == np.inf] = 0
+    #     graph = spdiags(norm, 0, len(norm_consts), len(norm_consts)) * graph
+    #     return graph, id_map
+
+    def cache4random(self):
+
+        self.random_cached = []
+        for i in range(self.adj_matrix_normed.shape[0]):
+            self.random_cached.append(FastRandomChoiceCached(self.adj_matrix_normed[i].indices, self.adj_matrix_normed[i].data))
+
     @staticmethod
-    def preprocess_edgelist(path2edjlist, sep=',', graph_weights_scaling='log2', graph_mode='directed'):
-        X = pd.read_csv(path2edjlist, sep=sep)
-
-        out_vertex_col = X.columns[0]
-        in_vertex_col = X.columns[1]
-        weight_col = X.columns[2]
-
-        out_vertex = set(X[out_vertex_col])
-        in_vertex = set(X[in_vertex_col])
-        all_vertex = out_vertex.union(in_vertex)
-
-        vertex_encoding = {i: j for i, j in zip(all_vertex, range(len(all_vertex)))}
-        id_map = {j: i for i, j in zip(all_vertex, range(len(all_vertex)))}
-
-        X[out_vertex_col] = X[out_vertex_col].map(vertex_encoding)
-        X[in_vertex_col] = X[in_vertex_col].map(vertex_encoding)
-
-        graph = csr_matrix((X[weight_col], (X[in_vertex_col], X[out_vertex_col])),
-                           (len(vertex_encoding), len(vertex_encoding)), dtype=np.float32)
-
-        if graph_mode == 'undirected':
-            graph = graph + graph.T
-
+    def normalize(graph):
         norm_consts = graph.sum(axis=1)
         norm_consts = np.array(norm_consts).squeeze()
         norm = 1 / norm_consts
         norm[norm == np.inf] = 0
         graph = spdiags(norm, 0, len(norm_consts), len(norm_consts)) * graph
+        return graph
 
-        return graph, id_map
+    def get_copy(self, node_list=None):
+        G_copy = copy.copy(self)
+        G_copy.random_cached = []
+        G_copy = copy.deepcopy(G_copy)
+        if node_list is not None:
+            G_copy.adj_matrix = G_copy.get_sub_graph(node_list)
+        G_copy.cache4random()
+        return G_copy
 
+
+def load_data(prefix, normalize=True, load_walks=False):
+    G_data = json.load(open(prefix + "-G.json"))
+    G = json_graph.node_link_graph(G_data)
+    G_ours = nx.to_scipy_sparse_matrix(G)
+
+    d = {'train': [], 'val': [], 'test': []}
+    broken_count = 0
+    for i, node in enumerate(G.nodes()):
+        if G.node[node]['val']:
+            d['val'].append(i)
+        elif G.node[node]['test']:
+            d['test'].append(i)
+        else:
+            d['train'].append(i)
+
+
+
+
+    conversion = lambda n: int(n)
+    id_map = json.load(open(prefix + "-id_map.json"))
+    id_map = {conversion(k): int(v) for k, v in id_map.items()}
+
+    walks = []
+
+    class_map = json.load(open(prefix + "-class_map.json"))
+    if isinstance(list(class_map.values())[0], list):
+        lab_conversion = lambda n: n
+    else:
+        lab_conversion = lambda n: int(n)
+    class_map = {conversion(k): lab_conversion(v) for k,v in class_map.items()}
+
+    G_sup = SparseGraph(G_ours, prefix + '-feats.npy', id_map=id_map, class_map=class_map, features_mode='npy')
+
+    G_train = G_sup.get_sub_graph(d['train'])
+    print(type(G_train))
+    G_sup_train = SparseGraph(G_train, prefix + '-feats.npy', id_map=id_map, class_map=class_map, features_mode='npy')
+
+    return G_sup_train, G_sup
 
 
 if __name__ == '__main__':
@@ -166,3 +235,6 @@ if __name__ == '__main__':
     G = json_graph.node_link_graph(G_data)
     G_ours = nx.to_scipy_sparse_matrix(G)
     G_sup = SparseGraph(G_ours, '../example_data/ppi-feats.npy', features_mode='npy')
+    a = G_sup.get_copy()
+    print(a.random_cached is G_sup.random_cached)
+    print(len(a.random_cached))
