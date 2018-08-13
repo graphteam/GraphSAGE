@@ -117,9 +117,14 @@ class SparseGraph:
         """грузим уже обработанные фичи"""
         if mode == 'csv':
             self.node_features = pd.read_csv(path2fts, sep=sep)
-        elif mode =='npy':
-#             with open(path2fts) as f:
+        elif mode == 'npy':
             self.node_features = np.load(path2fts)
+
+    def get_sub_graph(self, list_of_nodes):
+        mask = np.zeros(self.adj_matrix.shape[0])
+        mask[list_of_nodes] = 1
+        sub_graph = spdiags(mask, 0, len(mask), len(mask)) * self.adj_matrix
+        return sub_graph
 
     @staticmethod
     def preprocess_edgelist(path2edjlist, sep=',', graph_weights_scaling='log2', graph_mode='directed'):
@@ -156,7 +161,7 @@ class SparseGraph:
 
 
 if __name__ == '__main__':
-	G_data = json.load(open('../example_data/ppi-G.json'))
-	G = json_graph.node_link_graph(G_data)
-	G_ours = nx.to_scipy_sparse_matrix(G)
-	G_sup = SparseGraph(G_ours, '../example_data/ppi-feats.npy', features_mode='npy')
+    G_data = json.load(open('../example_data/ppi-G.json'))
+    G = json_graph.node_link_graph(G_data)
+    G_ours = nx.to_scipy_sparse_matrix(G)
+    G_sup = SparseGraph(G_ours, '../example_data/ppi-feats.npy', features_mode='npy')
