@@ -176,6 +176,7 @@ class EdgeMinibatchIterator(object):
         self.nodes = np.random.permutation(self.nodes)
         self.batch_num = 0
 
+
 class NodeMinibatchIterator(object):
     
     """ 
@@ -189,19 +190,17 @@ class NodeMinibatchIterator(object):
     batch_size -- size of the minibatches
     max_degree -- maximum size of the downsampled adjacency lists
     """
-    def __init__(self, G,
+    def __init__(self,
+                 G,
                  G_test,
-                 # id2idx,
-            placeholders,
-                 # label_map,
+                 placeholders,
                  num_classes,
-            batch_size=100, max_degree=25,
-            **kwargs):
-
+                 batch_size=100,
+                 max_degree=25,
+                 **kwargs):
         self.G = G
         self.G_test = G_test
-        self.nodes = np.arange(G.adj_matrix.shape[0])#G.nodes()
-        self.id2idx = G.id_map#id2idx
+        self.nodes = np.arange(G.adj_matrix.shape[0])
         self.placeholders = placeholders
         self.batch_size = batch_size
         self.max_degree = max_degree
@@ -211,22 +210,15 @@ class NodeMinibatchIterator(object):
         self.deg = G.deg
         print('construct adj started')
         self.adj = self.construct_adj(self.G)
-        print('rtain finished')
         self.test_adj = self.construct_adj(self.G_test)
         print('construct adj finished')
 
+        flag = (np.array(G.adj_matrix.sum(axis=1)).squeeze() > 0)
+        self.train_nodes = self.nodes[flag]
 
-        # self.no_train_nodes_set = set(self.val_nodes + self.test_nodes)
-        # self.train_nodes = set(G.nodes()).difference(self.no_train_nodes_set)
-        # don't train on nodes that only have edges to test set
-        flag = np.array(G.adj_matrix.sum(axis=1)).squeeze()
-        self.train_nodes = self.nodes[flag > 0]
-
-        flag_test = np.array(G_test.adj_matrix.sum(axis=1)).squeeze() - flag
-        self.val_nodes = self.nodes[flag_test > 0] #[n for n in self.G.nodes() if self.G.node[n]['val']]
-        self.test_nodes = self.nodes[flag_test > 0]#[n for n in self.G.nodes() if self.G.node[n]['test']]
-
-        #[n for n in self.train_nodes if self.deg[id2idx[n]] > 0]
+        flag_test = (np.array(G_test.adj_matrix.sum(axis=1)).squeeze() > 0).astype(np.int) - flag
+        self.val_nodes = self.nodes[flag_test > 0]
+        self.test_nodes = self.nodes[flag_test > 0]
 
     def _make_label_vec(self, node):
         label = self.label_map[node]
@@ -239,29 +231,24 @@ class NodeMinibatchIterator(object):
         return label_vec
 
     def construct_adj(self, G):
-
-        adj = len(self.id2idx)*np.ones((len(self.id2idx)+1, self.max_degree))
+        adj = len(self.nodes)*np.ones((len(self.nodes)+1, self.max_degree))
         print(adj.shape)
         for i in range(G.adj_matrix.shape[0]):
-            # print('sample_neighbours')
-            # print(len(G.deg))
-            if G.deg[self.id2idx[i]] == 0:
+            if G.deg[i] == 0:
                 continue
             neighbors = G.sample_neighbours(i, self.max_degree)
-            adj[self.id2idx[i], :] = neighbors
-        return adj#, deg
+            adj[i, :] = neighbors
+        return adj
 
     def end(self):
         return self.batch_num * self.batch_size >= len(self.train_nodes)
 
-    def batch_feed_dict(self, batch_nodes, val=False):
+    def batch_feed_dict(self, batch_nodes):
         batch1id = batch_nodes
-        batch1 = [self.id2idx[n] for n in batch1id]
-              
         labels = np.vstack([self._make_label_vec(node) for node in batch1id])
         feed_dict = dict()
-        feed_dict.update({self.placeholders['batch_size'] : len(batch1)})
-        feed_dict.update({self.placeholders['batch']: batch1})
+        feed_dict.update({self.placeholders['batch_size']: len(batch1id)})
+        feed_dict.update({self.placeholders['batch']: batch1id})
         feed_dict.update({self.placeholders['labels']: labels})
 
         return feed_dict, labels

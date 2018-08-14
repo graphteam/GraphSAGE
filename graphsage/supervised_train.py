@@ -91,7 +91,6 @@ def log_dir():
 
 def incremental_evaluate(sess, model, minibatch_iter, size, test=False):
     t_test = time.time()
-    finished = False
     val_losses = []
     val_preds = []
     labels = []
@@ -124,32 +123,24 @@ def train(train_data, test_data):
 
     G = train_data
     G_test = test_data
-    # features = train_data[1]
-    # id_map = train_data[2]
-    # class_map  = train_data[4]
     if isinstance(list(G.class_map.values())[0], list):
         num_classes = len(list(G.class_map.values())[0])
     else:
         num_classes = len(set(G.class_map.values()))
 
-    if not G.features is None:
+    features = G.features
+    if features is not None:
         # pad with dummy zero vector
-        features = np.vstack([G.features, np.zeros((G.features.shape[1],))])
+        features = np.vstack([features, np.zeros((features.shape[1],))])
 
-    # context_pairs = train_data[3] if FLAGS.random_context else None
     placeholders = construct_placeholders(num_classes)
-    print('blabla')
     minibatch = NodeMinibatchIterator(G,
             G_test,
-            # G.id_map,
-            placeholders, 
-            # G.class_map,
+            placeholders,
             num_classes,
             batch_size=FLAGS.batch_size,
             max_degree=FLAGS.max_degree, 
-            # context_pairs = context_pairs
                                       )
-    print('minibatch created')
     adj_info_ph = tf.placeholder(tf.int32, shape=minibatch.adj.shape)
     adj_info = tf.Variable(adj_info_ph, trainable=False, name="adj_info")
 
@@ -166,15 +157,16 @@ def train(train_data, test_data):
         else:
             layer_infos = [SAGEInfo("node", sampler, FLAGS.samples_1, FLAGS.dim_1)]
 
-        model = SupervisedGraphsage(num_classes, placeholders, 
-                                     features,
-                                     adj_info,
-                                     minibatch.deg,
-                                     layer_infos, 
-                                     model_size=FLAGS.model_size,
-                                     sigmoid_loss = FLAGS.sigmoid,
-                                     identity_dim = FLAGS.identity_dim,
-                                     logging=True)
+        model = SupervisedGraphsage(num_classes,
+                                    placeholders,
+                                    features,
+                                    adj_info,
+                                    minibatch.deg,
+                                    layer_infos,
+                                    model_size=FLAGS.model_size,
+                                    sigmoid_loss = FLAGS.sigmoid,
+                                    identity_dim = FLAGS.identity_dim,
+                                    logging=True)
     elif FLAGS.model == 'gcn':
         # Create model
         sampler = UniformNeighborSampler(adj_info)
