@@ -129,7 +129,7 @@ def construct_placeholders():
     }
     return placeholders
 
-def train(train_data, test_data):
+def train(train_data, test_data, bs=None):
     G = train_data
     G_test = test_data
 
@@ -143,6 +143,7 @@ def train(train_data, test_data):
     placeholders = construct_placeholders()
     minibatch = EdgeMinibatchIterator(G,
                                       G_test,
+                                      bs,
             # id_map,
             placeholders,
                                       batch_size=FLAGS.batch_size,
@@ -262,7 +263,7 @@ def train(train_data, test_data):
     train_adj_info = tf.assign(adj_info, minibatch.adj)
     val_adj_info = tf.assign(adj_info, minibatch.test_adj)
     for epoch in range(FLAGS.epochs): 
-        minibatch.shuffle() 
+        # minibatch.shuffle()
 
         iter = 0
         print('Epoch: %04d' % (epoch + 1))
@@ -320,16 +321,16 @@ def train(train_data, test_data):
                 break
     
     print("Optimization Finished!")
-    if FLAGS.save_embeddings:
-        sess.run(val_adj_info.op)
-        save_val_embeddings(sess, model, minibatch, FLAGS.validate_batch_size, log_dir())
+    # if FLAGS.save_embeddings:
+    #     sess.run(val_adj_info.op)
+    #     save_val_embeddings(sess, model, minibatch, FLAGS.validate_batch_size, log_dir())
     
 
 def main(argv=None):
     print("Loading training data..")
-    train_data, test_data = load_data(FLAGS.train_prefix)
+    train_data, test_data, bs = load_data(FLAGS.train_prefix, load_walks=True)
     print("Done loading training data..")
-    train(train_data, test_data)
+    train(train_data, test_data, bs)
 
 if __name__ == '__main__':
     tf.app.run()

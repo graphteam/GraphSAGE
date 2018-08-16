@@ -6,24 +6,24 @@ import numpy as np
 import random
 import sys
 import os
-from numba import jitclass, int32, float32
+from numba import jitclass, uint64, float32
 import scipy
 from scipy.sparse import csr_matrix, load_npz, save_npz, spdiags
 import copy
 from collections import Counter
 
 @jitclass([
-    ('K', int32),
-    ('values', int32[:]),
+    ('K', uint64),
+    ('values', uint64[:]),
     ('q', float32[:]),
-    ('J', int32[:]),
+    ('J', uint64[:]),
 ])
 class FastRandomChoiceCached(object):
     def __init__(self, values, probs):
         self.values = values
-        self.K = probs.size
+        self.K = np.uint64(probs.size)
         self.q = np.zeros(self.K, dtype=np.float32)
-        self.J = np.zeros(self.K, dtype=np.int32)
+        self.J = np.zeros(self.K, dtype=np.uint64)
         self.prep_var_sample(probs)
 
     def prep_var_sample(self, probs):
@@ -64,7 +64,6 @@ class FastRandomChoiceCached(object):
     def draw_n(self, n):
         r1, r2 = np.random.rand(n), np.random.rand(n)
         return self.values[self.sample(n, r1, r2)]
-
 
 class SparseGraph:
     def __init__(self, adj_matrix=None,
@@ -169,7 +168,8 @@ class SparseGraph:
 
         self.random_cached = []
         for i in range(self.adj_matrix_normed.shape[0]):
-            self.random_cached.append(FastRandomChoiceCached(self.adj_matrix_normed[i].indices, self.adj_matrix_normed[i].data))
+            self.random_cached.append(FastRandomChoiceCached(self.adj_matrix_normed[i].indices.astype(np.uint64),
+                                                             self.adj_matrix_normed[i].data))
 
     @staticmethod
     def normalize(graph):
@@ -227,8 +227,22 @@ def load_data(prefix, normalize=True, load_walks=False):
     print(type(G_train))
     G_sup_train = SparseGraph(G_train, prefix + '-feats.npy', id_map=id_map, class_map=class_map, features_mode='npy')
 
+    if load_walks:
+        bs = batch_sampler(scipy.sparse.load_npz(prefix+'-walks.npz'))
+        return G_sup_train, G_sup, bs
     return G_sup_train, G_sup
 
+class batch_sampler:
+    def __init__(self, pairs):
+        self.shape = pairs.shape
+        self.node_sampler = FastRandomChoiceCached(
+            np.ravel_multi_index((pairs.row, pairs.col), dims=pairs.shape).astype(np.uint64),
+            pairs.data / pairs.data.sum()
+        )
+
+    def sample_batch(self, batch_size=10):
+        batch = self.node_sampler.draw_n(batch_size)
+        return np.unravel_index(batch, self.shape)
 
 if __name__ == '__main__':
     G_data = json.load(open('../example_data/ppi-G.json'))

@@ -23,11 +23,13 @@ class EdgeMinibatchIterator(object):
     def __init__(self,
                  G,
                  G_test,
+                 bs,
                  # id2idx,
                  placeholders,
                  # context_pairs=None,
                  batch_size=100,
                  max_degree=25,
+                 num_batches = 1000,
                  # n2v_retrain=False,
                  # fixed_n2v=False,
                  **kwargs):
@@ -45,13 +47,14 @@ class EdgeMinibatchIterator(object):
         self.adj = self.construct_adj(self.G)
         self.test_adj = self.construct_adj(self.G_test)
         print('construct adj finished')
-
-        train_edges = G.adj_matrix.tocoo()
-        self.train_edges = np.random.permutation(list(zip(train_edges.row, train_edges.col)))
-
-        val_edges = G_test.adj_matrix.tocoo()
-        self.val_edges = np.random.permutation(list(zip(val_edges.row, val_edges.col)))
-        self.test_edges = self.val_edges
+        self.bs = bs
+        self.num_batches = num_batches
+        # train_edges = G.adj_matrix.tocoo()
+        # self.train_edges = np.random.permutation(list(zip(train_edges.row, train_edges.col)))
+        #
+        # val_edges = G_test.adj_matrix.tocoo()
+        # self.val_edges = np.random.permutation(list(zip(val_edges.row, val_edges.col)))
+        # self.test_edges = self.val_edges
 
         # flag = (np.array(G.adj_matrix.sum(axis=1)).squeeze() > 0)
         # self.train_nodes = self.nodes[flag]
@@ -110,40 +113,37 @@ class EdgeMinibatchIterator(object):
         return adj
 
     def end(self):
-        return self.batch_num * self.batch_size >= len(self.train_edges)
+        return self.batch_num >= (self.num_batches)
 
-    def batch_feed_dict(self, batch_edges):
-        batch1 = []
-        batch2 = []
-        for node1, node2 in batch_edges:
-            batch1.append(node1)
-            batch2.append(node2)
+    def batch_feed_dict(self):
+        # batch1 = []
+        # batch2 = []
+        # for node1, node2 in batch_edges:
+        #     batch1.append(node1)
+        #     batch2.append(node2)
+        batch1, batch2 = self.bs.sample_batch(self.batch_size)
 
         feed_dict = dict()
-        feed_dict.update({self.placeholders['batch_size'] : len(batch_edges)})
+        feed_dict.update({self.placeholders['batch_size'] : self.batch_size})
         feed_dict.update({self.placeholders['batch1']: batch1})
         feed_dict.update({self.placeholders['batch2']: batch2})
 
         return feed_dict
 
     def next_minibatch_feed_dict(self):
-        start_idx = self.batch_num * self.batch_size
-        self.batch_num += 1
-        end_idx = min(start_idx + self.batch_size, len(self.train_edges))
-        batch_edges = self.train_edges[start_idx : end_idx]
-        return self.batch_feed_dict(batch_edges)
+        return self.batch_feed_dict()
 
     def num_training_batches(self):
-        return len(self.train_edges) // self.batch_size + 1
+        return self.num_batches #len(self.train_edges) // self.batch_size + 1
 
     def val_feed_dict(self, size=None):
-        edge_list = self.val_edges
-        if size is None:
-            return self.batch_feed_dict(edge_list)
-        else:
-            ind = np.random.permutation(len(edge_list))
-            val_edges = [edge_list[i] for i in ind[:min(size, len(ind))]]
-            return self.batch_feed_dict(val_edges)
+        # edge_list = self.val_edges
+        # if size is None:
+        #     return self.batch_feed_dict(edge_list)
+        # else:
+        #     ind = np.random.permutation(len(edge_list))
+        #     val_edges = [edge_list[i] for i in ind[:min(size, len(ind))]]
+        return self.batch_feed_dict()
 
     def incremental_val_feed_dict(self, size, iter_num):
         edge_list = self.val_edges
@@ -169,13 +169,13 @@ class EdgeMinibatchIterator(object):
     #             train_edges.append((n1,n2))
     #     return train_edges, val_edges
 
-    def shuffle(self):
-        """ Re-shuffle the training set.
-            Also reset the batch number.
-        """
-        self.train_edges = np.random.permutation(self.train_edges)
-        self.nodes = np.random.permutation(self.nodes)
-        self.batch_num = 0
+    # def shuffle(self):
+    #     """ Re-shuffle the training set.
+    #         Also reset the batch number.
+    #     """
+    #     self.train_edges = np.random.permutation(self.train_edges)
+    #     self.nodes = np.random.permutation(self.nodes)
+    #     self.batch_num = 0
 
 
 class NodeMinibatchIterator(object):
